@@ -1,0 +1,31 @@
+
+stages:
+    - build
+
+compile:
+    stage: build
+    script:
+        # interim plan
+        - cd ../
+        - echo "[ ! -f 'go1.8.1.linux-amd64.tar.gz' ]&&wget 'http://10.139.53.231:21/go1.8.1.linux-amd64.tar.gz'&&tar -zxvf go1.8.1.linux-amd64.tar.gz;echo $?" > go.sh
+        - chmod +x go.sh ;./go.sh
+        - export GOROOT=`pwd`/go
+        - rm -rf golang/src/gitlab.zhonganonline.com/ann/*
+        - export GOPATH=`pwd`/golang
+        - cp -r block-browser golang/src/gitlab.zhonganonline.com/ann/
+        - cd golang/src/
+        - mkdir -p github.com/ethereum;cd github.com/ethereum
+        - wget http://10.139.53.231:21/gitClone;chmod +x gitClone;./gitClone;rm gitClone*
+        - cd go-ethereum;git checkout f2c9577ab0275164fd889d833fbeb63afa277189;cd -
+        - mv ann-module ../../gitlab.zhonganonline.com/ann/;cd ../../gitlab.zhonganonline.com/ann
+        - wget http://10.139.53.231:21/vendor.tar.gz
+        - tar -zxvf vendor.tar.gz
+        - cd ann-module;git checkout 6ed2843c78873f87000389d095fe0c6a49e8cc34
+        - wget http://10.139.53.231:21/vendorOfModule.tar.gz
+        - tar -zxvf vendorOfModule.tar.gz;mv vendorOfModule vendor
+        - cd ../block-browser
+        - export PATH=$PATH:$GOROOT/bin:$GOPATH/bin
+        - go version
+        - make
+        - make test
+        - rm -rf ../../../github.com
