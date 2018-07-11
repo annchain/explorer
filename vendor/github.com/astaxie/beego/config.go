@@ -41,6 +41,7 @@ type Config struct {
 	EnableGzip          bool
 	MaxMemory           int64
 	EnableErrorsShow    bool
+	EnableErrorsRender  bool
 	Listen              Listen
 	WebConfig           WebConfig
 	Log                 LogConfig
@@ -48,22 +49,24 @@ type Config struct {
 
 // Listen holds for http and https related config
 type Listen struct {
-	Graceful      bool // Graceful means use graceful module to start the server
-	ServerTimeOut int64
-	ListenTCP4    bool
-	EnableHTTP    bool
-	HTTPAddr      string
-	HTTPPort      int
-	EnableHTTPS   bool
-	HTTPSAddr     string
-	HTTPSPort     int
-	HTTPSCertFile string
-	HTTPSKeyFile  string
-	EnableAdmin   bool
-	AdminAddr     string
-	AdminPort     int
-	EnableFcgi    bool
-	EnableStdIo   bool // EnableStdIo works with EnableFcgi Use FCGI via standard I/O
+	Graceful          bool // Graceful means use graceful module to start the server
+	ServerTimeOut     int64
+	ListenTCP4        bool
+	EnableHTTP        bool
+	HTTPAddr          string
+	HTTPPort          int
+	EnableHTTPS       bool
+	EnableMutualHTTPS bool
+	HTTPSAddr         string
+	HTTPSPort         int
+	HTTPSCertFile     string
+	HTTPSKeyFile      string
+	TrustCaFile       string
+	EnableAdmin       bool
+	AdminAddr         string
+	AdminPort         int
+	EnableFcgi        bool
+	EnableStdIo       bool // EnableStdIo works with EnableFcgi Use FCGI via standard I/O
 }
 
 // WebConfig holds web related config
@@ -102,9 +105,10 @@ type SessionConfig struct {
 
 // LogConfig holds Log related config
 type LogConfig struct {
-	AccessLogs  bool
-	FileLineNum bool
-	Outputs     map[string]string // Store Adaptor : config
+	AccessLogs       bool
+	AccessLogsFormat string //access log format: JSON_FORMAT, APACHE_FORMAT or empty string
+	FileLineNum      bool
+	Outputs          map[string]string // Store Adaptor : config
 }
 
 var (
@@ -133,18 +137,19 @@ func init() {
 	if err != nil {
 		panic(err)
 	}
-	appConfigPath = filepath.Join(workPath, "conf", "app.conf")
+	var filename = "app.conf"
+	if os.Getenv("BEEGO_MODE") != "" {
+		filename = os.Getenv("BEEGO_MODE") + ".app.conf"
+	}
+	appConfigPath = filepath.Join(workPath, "conf", filename)
 	if !utils.FileExists(appConfigPath) {
-		appConfigPath = filepath.Join(AppPath, "conf", "app.conf")
+		appConfigPath = filepath.Join(AppPath, "conf", filename)
 		if !utils.FileExists(appConfigPath) {
 			AppConfig = &beegoAppConfig{innerConfig: config.NewFakeConfig()}
 			return
 		}
 	}
 	if err = parseConfig(appConfigPath); err != nil {
-		panic(err)
-	}
-	if err = os.Chdir(AppPath); err != nil {
 		panic(err)
 	}
 }
@@ -174,7 +179,7 @@ func recoverPanic(ctx *context.Context) {
 			logs.Critical(fmt.Sprintf("%s:%d", file, line))
 			stack = stack + fmt.Sprintln(fmt.Sprintf("%s:%d", file, line))
 		}
-		if BConfig.RunMode == DEV {
+		if BConfig.RunMode == DEV && BConfig.EnableErrorsRender {
 			showErr(err, ctx, stack)
 		}
 	}
@@ -192,6 +197,7 @@ func newBConfig() *Config {
 		EnableGzip:          false,
 		MaxMemory:           1 << 26, //64MB
 		EnableErrorsShow:    true,
+		EnableErrorsRender:  true,
 		Listen: Listen{
 			Graceful:      false,
 			ServerTimeOut: 0,
@@ -240,9 +246,10 @@ func newBConfig() *Config {
 			},
 		},
 		Log: LogConfig{
-			AccessLogs:  false,
-			FileLineNum: true,
-			Outputs:     map[string]string{"console": ""},
+			AccessLogs:       false,
+			AccessLogsFormat: "APACHE_FORMAT",
+			FileLineNum:      true,
+			Outputs:          map[string]string{"console": ""},
 		},
 	}
 }
@@ -257,15 +264,14 @@ func parseConfig(appConfigPath string) (err error) {
 }
 
 func assignConfig(ac config.Configer) error {
+	for _, i := range []interface{}{BConfig, &BConfig.Listen, &BConfig.WebConfig, &BConfig.Log, &BConfig.WebConfig.Session} {
+		assignSingleConfig(i, ac)
+	}
 	// set the run mode first
 	if envRunMode := os.Getenv("BEEGO_RUNMODE"); envRunMode != "" {
 		BConfig.RunMode = envRunMode
 	} else if runMode := ac.String("RunMode"); runMode != "" {
 		BConfig.RunMode = runMode
-	}
-
-	for _, i := range []interface{}{BConfig, &BConfig.Listen, &BConfig.WebConfig, &BConfig.Log, &BConfig.WebConfig.Session} {
-		assignSingleConfig(i, ac)
 	}
 
 	if sd := ac.String("StaticDir"); sd != "" {
@@ -347,7 +353,7 @@ func assignSingleConfig(p interface{}, ac config.Configer) {
 		case reflect.String:
 			pf.SetString(ac.DefaultString(name, pf.String()))
 		case reflect.Int, reflect.Int64:
-			pf.SetInt(int64(ac.DefaultInt64(name, pf.Int())))
+			pf.SetInt(ac.DefaultInt64(name, pf.Int()))
 		case reflect.Bool:
 			pf.SetBool(ac.DefaultBool(name, pf.Bool()))
 		case reflect.Struct:

@@ -1,22 +1,18 @@
 package job
 
 import (
-	"bytes"
-	"encoding/gob"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
-	"strings"
 	"time"
 
-	"gitlab.zhonganonline.com/ann/angine/types"
 	"github.com/annchain/explorer/repository"
 	"github.com/annchain/explorer/rpc"
 	"sync"
 	"math/big"
-	"github.com/ethereum/go-ethereum/common"
+	"gitlab.zhonganonline.com/ann/gemmill/go-crypto"
+	"encoding/hex"
 )
 
 const (
@@ -119,29 +115,24 @@ func BlockChain(h int) (err error) {
 	}
 
 	rb := repository.Block{
-		Hash:           strings.ToLower(block.BlockMeta.Hash),
+		Hash:           hex.EncodeToString(block.BlockMeta.Hash),
 		ChainID:        block.Block.Header.ChainID,
 		Height:         block.Block.Header.Height,
-		Time:           time.Unix(0, block.Block.Header.Time),
-		LastCommitHash: strings.ToLower(block.Block.Header.LastCommitHash),
-		DataHash:       strings.ToLower(block.Block.Header.DataHash),
-		ValidatorsHash: strings.ToLower(block.Block.Header.ValidatorsHash),
-		AppHash:        strings.ToLower(block.Block.Header.AppHash),
+		Time:           time.Unix(0, int64(block.Block.Header.Time)),
+		DataHash:       hex.EncodeToString(block.Block.Header.DataHash),
+		ValidatorsHash: hex.EncodeToString(block.Block.Header.ValidatorsHash),
 		Reward:         128,
-		CoinBase:       block.Block.Header.CoinBase,
+		CoinBase:       hex.EncodeToString(block.Block.Header.CoinBase),
 	}
-	if len(block.Block.Data.Txs) == 0 && len(block.Block.Data.ExTxs) == 0 {
+	if len(block.Block.Data.Txs) == 0 {
 		br.Blocks = append(br.Blocks, rb)
 	} else {
-		TxsData := make(map[string]int)
+
 		//unique
-		for _, v := range block.Block.Data.Txs {
-			TxsData[v] = 0
-		}
-		//rb.NumTxs = len(block.Block.Data.Txs) + len(block.Block.Data.ExTxs)
-		rb.NumTxs = len(TxsData)
+
+		rb.NumTxs = len(block.Block.Data.Txs)
 		br.Blocks = append(br.Blocks, rb)
-		for k, _ := range TxsData {
+		for _, k := range block.Block.Data.Txs {
 
 			rtx, errP := parseTransaction(&rb, k)
 			if errP != nil {
@@ -179,22 +170,26 @@ func parseTransaction(rb *repository.Block, v string) (rtx repository.Transactio
 	}
 
 	tx := &BlockTransaction{}
-	decoder := gob.NewDecoder(bytes.NewReader(common.FromHex(v)))
-	err = decoder.Decode(tx)
+
 	if err != nil {
 		return
 	}
-
-	buf := bytes.Buffer{}
-	encoder := gob.NewEncoder(&buf)
-	if err := encoder.Encode(tx); err != nil {
-		return rtx, err
+	v= "\"" + v + "\""
+	var bs []byte
+	err = json.Unmarshal([]byte(v), &bs)
+	if err != nil {
+		return
 	}
-
-	hash := types.Tx(buf.Bytes()).Hash()
+	if int(bs[0])!=1{
+		return
+	}
+	err = FromBytes(bs[3:], tx)
+	if err != nil {
+		return
+	}
 	rtx = repository.Transaction{
-		Hash:       hex.EncodeToString(hash),
-		PayloadHex: string(tx.Payload),
+		Hash:       hex.EncodeToString(Hash(tx)),
+		PayloadHex: hex.EncodeToString(tx.Payload),
 		Block:      rb.Hash,
 		Time:       rb.Time,
 		Height:     rb.Height,
@@ -202,57 +197,67 @@ func parseTransaction(rb *repository.Block, v string) (rtx repository.Transactio
 	return
 }
 
+func Hash(o interface{}) []byte {
+	bs, err := ToBytes(o)
+	if err != nil {
+		panic(err)
+	}
+
+	return crypto.Sha256(bs)
+}
+
+type Tx []byte
+
 type ResultBlock struct {
-	BlockMeta struct {
-		Hash string `json:"hash"`
-		PartsHeader struct {
-			Total int    `json:"total"`
-			Hash  string `json:"hash"`
-		} `json:"parts_header"`
-	} `json:"block_meta"`
 	Block struct {
-		Header struct {
-			ChainID string `json:"chain_id"`
-			Height  int    `json:"height"`
-			Time    int64  `json:"time"`
-			NumTxs  int    `json:"num_txs"`
-			Maker   string `json:"maker"`
-			LastBlockID struct {
-				Hash        string      `json:"hash"`
-				PartsHeader interface{} `json:"parts_header"`
-			} `json:"last_block_id"`
-			LastCommitHash     string `json:"last_commit_hash"`
-			DataHash           string `json:"data_hash"`
-			ValidatorsHash     string `json:"validators_hash"`
-			AppHash            string `json:"app_hash"`
-			ReceiptsHash       string `json:"receipts_hash"`
-			LastNonEmptyHeight int    `json:"last_non_empty_height"`
-			CoinBase           string `json:"coin_base"`
-		} `json:"header"`
 		Data struct {
-			Txs   []string `json:"txs"`
-			ExTxs []string `json:"ex_txs"`
-		} `json:"data"`
-		LastCommit struct {
-			BlockID    interface{}   `json:"block_id"`
-			PreCommits []interface{} `json:"pre_commits"`
-		} `json:"last_commit"`
-		ValidatorSet struct {
-			Validators []struct {
-				Address     string `json:"address"`
-				PubKey      string `json:"pub_key"`
-				VotingPower int    `json:"voting_power"`
-				Accum       int    `json:"accum"`
-				IsCa        bool   `json:"is_ca"`
-			} `json:"validators"`
-			Proposer         interface{} `json:"proposer"`
-			TotalVotingPower int         `json:"total_voting_power"`
-		} `json:"validator_set"`
+			Txs []string `json:"Txs"`
+		} `json:"Data"`
+		Header struct {
+			ChainID        string   `json:"ChainID"`
+			CoinBase       []byte   `json:"CoinBase"`
+			DataHash       []byte   `json:"DataHash"`
+			Height         int      `json:"Height"`
+			LastBlockID    struct{} `json:"LastBlockID"`
+			Maker          string   `json:"Maker"`
+			NumTxs         int      `json:"NumTxs"`
+			Time           int      `json:"Time"`
+			ValidatorsHash []byte   `json:"ValidatorsHash"`
+		} `json:"Header"`
+		LastCommit struct{} `json:"LastCommit"`
+		VSet struct {
+			VSet []struct {
+				Address []byte `json:"Address"`
+				IsCA    bool   `json:"IsCA"`
+				Pubkey struct {
+					Bytes []byte `json:"bytes"`
+				} `json:"Pubkey"`
+				VotingPower int `json:"VotingPower"`
+			} `json:"VSet"`
+		} `json:"VSet"`
 	} `json:"block"`
+	BlockMeta struct {
+		Hash []byte `json:"Hash"`
+		Header struct {
+			ChainID        string   `json:"ChainID"`
+			CoinBase       []byte   `json:"CoinBase"`
+			DataHash       []byte   `json:"DataHash"`
+			Height         int      `json:"Height"`
+			LastBlockID    struct{} `json:"LastBlockID"`
+			Maker          []byte   `json:"Maker"`
+			NumTxs         int      `json:"NumTxs"`
+			Time           int      `json:"Time"`
+			ValidatorsHash []byte   `json:"ValidatorsHash"`
+		} `json:"Header"`
+		PartsHeader struct {
+			Hash  []byte `json:"Hash"`
+			Total int    `json:"Total"`
+		} `json:"PartsHeader"`
+	} `json:"block_meta"`
 }
 
 func GetBlock(height int) (result ResultBlock, err error) {
-	url := fmt.Sprintf("%s/block?height=%d&chainid=\"%s\"", rpc.HTTP_ADDR, height, repository.ChainID)
+	url := fmt.Sprintf("%s/block_raw?height=%d&chainid=\"%s\"", rpc.HTTP_ADDR, height, repository.ChainID)
 	bytez, errB := repository.GetHTTPResp(url)
 	if errB != nil {
 		err = errB

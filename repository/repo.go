@@ -14,7 +14,7 @@ import (
 	"log"
 
 	"github.com/astaxie/beego"
-	. "github.com/annchain/explorer/logs"
+	//. "github.com/annchain/explorer/logs"
 	"github.com/annchain/explorer/rpc"
 	"gopkg.in/mgo.v2/bson"
 )
@@ -544,7 +544,7 @@ func Height() (maxHeight int, err error) {
 		result := Block{}
 		err = query.One(&result)
 		if err != nil {
-			LOG.Info("Info : query Block Max Height , err: %v", err)
+			beego.Info("Info : query Block Max Height , err: %v", err)
 		}
 		maxHeight = result.Height
 	} else {
